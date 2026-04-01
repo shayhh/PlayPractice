@@ -1,4 +1,5 @@
 import streamlit as st
+import streamlit.components.v1 as components
 from docx import Document
 import subprocess
 import os
@@ -11,7 +12,6 @@ st.set_page_config(page_title="Script Runner", page_icon="🎭", layout="centere
 # --- CORE FUNCTIONS ---
 @st.cache_data(show_spinner=False)
 def parse_script(file_source, practicing_character, lines_of_context):
-    """Reads the docx file (either an uploaded file or a local path) and chunks it into 'scenes'."""
     doc = Document(file_source)
     lines = [p.text.strip() for p in doc.paragraphs if p.text.strip()]
     
@@ -40,10 +40,6 @@ def parse_script(file_source, practicing_character, lines_of_context):
 
 @st.cache_data(show_spinner=False)
 def get_audio_bytes(text_to_speak, speed="+50%"):
-    """
-    Generates audio using edge-tts and returns the raw bytes.
-    Speed is set to +50% (approx 1.5x speed).
-    """
     if not text_to_speak.strip():
         return None
         
@@ -90,7 +86,6 @@ def prev_scene():
         st.session_state.revealed = False
 
 def jump_to_scene():
-    # Subtract 1 because humans read Scene 1, 2, 3, but Python reads index 0, 1, 2
     st.session_state.block_index = st.session_state.scene_selector - 1
     st.session_state.revealed = False
 
@@ -107,7 +102,6 @@ with st.sidebar:
     st.header("Settings")
     uploaded_file = st.file_uploader("Upload Word Script (.docx)", type=["docx"])
     
-    # Check for default play.docx
     default_file = "Play.docx"
     active_file = None
     
@@ -120,6 +114,10 @@ with st.sidebar:
     
     character_name = st.text_input("Your Character's Name", value="שפיגל")
     context_size = st.slider("Context Lines to Read", min_value=1, max_value=5, value=3)
+    
+    st.divider()
+    # NEW FEATURE TOGGLE
+    auto_advance = st.checkbox("🎤 Enable Voice Auto-Advance", value=True, help="Automatically moves to the next scene after you speak your line out loud. Requires Google Chrome and Microphone permissions.")
 
 # Main App Logic
 if active_file and character_name:
@@ -132,9 +130,7 @@ if active_file and character_name:
 
     total_scenes = len(blocks)
 
-    # ==========================================
-    # --- HERE IS THE NAVIGATION BAR SECTION ---
-    # ==========================================
+    # --- NAVIGATION BAR ---
     st.divider()
     nav_col1, nav_col2, nav_col3 = st.columns([1, 1.5, 1])
     
@@ -150,7 +146,6 @@ if active_file and character_name:
     
     st.progress((st.session_state.block_index + 1) / total_scenes, text=f"Scene {st.session_state.block_index + 1} of {total_scenes}")
     st.divider()
-    # ==========================================
 
     # Get the current scene data
     current_block = blocks[st.session_state.block_index]
@@ -186,14 +181,48 @@ if active_file and character_name:
         
         if st.session_state.block_index < total_scenes - 1:
             st.button("⏭️ Move to Next Scene", on_click=next_scene, args=(total_scenes,), use_container_width=True)
+            
+            # --- THE MAGIC VOICE LISTENER ---
+            if auto_advance:
+                st.info("🎤 Listening... Read your line out loud. The scene will advance automatically when you pause.")
+                
+                # We inject a tiny invisible Javascript snippet. It activates the browser's 
+                # speech recognition, listens for Hebrew, and when you finish speaking, 
+                # it secretly "clicks" the Next Scene button for you!
+                js_code = """
+                <script>
+                const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+                if (SpeechRecognition) {
+                    const recognition = new SpeechRecognition();
+                    recognition.continuous = false; // Stop listening automatically after a pause
+                    recognition.lang = 'he-IL';     // Expect Hebrew
+
+                    recognition.onresult = function(event) {
+                        if (event.results.length > 0) {
+                            console.log("Speech detected, advancing scene...");
+                            // Find the Streamlit "Next Scene" button and click it
+                            const buttons = window.parent.document.querySelectorAll('button');
+                            buttons.forEach(btn => {
+                                if (btn.innerText.includes('Move to Next Scene')) {
+                                    btn.click();
+                                }
+                            });
+                        }
+                    };
+                    recognition.start();
+                } else {
+                    console.log("Speech Recognition not supported in this browser.");
+                }
+                </script>
+                """
+                components.html(js_code, height=0)
+
         else:
             st.balloons()
             st.success("🎉 You've reached the end of your lines! Great job!")
             st.button("Start Over", on_click=restart, use_container_width=True)
 
-    # ==========================================
-    # --- HERE IS THE SECRET PRELOADER ---------
-    # ==========================================
+    # --- SECRET PRELOADER ---
     if st.session_state.block_index < total_scenes - 1:
         next_block = blocks[st.session_state.block_index + 1]
         next_context_text = " ".join(next_block['context'])
