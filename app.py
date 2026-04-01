@@ -155,4 +155,100 @@ if active_file and character_name:
 
     # Display Context Lines
     st.subheader("Cue (Listen):")
-    context_
+    context_text = ""
+    for line in current_block['context']:
+        st.markdown(f"> *{line}*")
+        context_text += line + " "
+
+    # Generate and display audio player
+    if context_text:
+        with st.spinner("Loading audio..."):
+            audio_bytes = get_audio_bytes(context_text)
+            if audio_bytes:
+                st.audio(audio_bytes, format="audio/mp3", autoplay=True)
+    else:
+        st.info("No context lines before this cue. You start the scene!")
+
+    st.divider()
+
+    # --- HANDS-FREE LISTENER INJECTION ---
+    # We inject this BEFORE the "Reveal" button. It waits for the audio to finish, 
+    # then silently listens.
+    if auto_advance and st.session_state.block_index < total_scenes - 1:
+        st.caption("🎙️ *Hands-Free mode active: Will wait for audio to finish, then listen for your line.*")
+        
+        js_code = f"""
+        <script>
+        // Use the scene index to ensure we don't duplicate listeners when you click "Reveal"
+        const sceneIndex = {st.session_state.block_index};
+        
+        if (window.parent.currentSceneIndex !== sceneIndex) {{
+            window.parent.currentSceneIndex = sceneIndex;
+            
+            const startListening = () => {{
+                const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+                if (!SpeechRecognition) return;
+                
+                const recognition = new SpeechRecognition();
+                recognition.continuous = false; // Stop when you pause
+                recognition.lang = 'he-IL';
+                
+                recognition.onresult = function(event) {{
+                    if (event.results.length > 0) {{
+                        // When speech is detected and finished, click the Next button
+                        const btns = window.parent.document.querySelectorAll('button');
+                        btns.forEach(btn => {{
+                            if (btn.innerText.includes('Next ⏩')) {{
+                                btn.click();
+                            }}
+                        }});
+                    }}
+                }};
+                
+                try {{ recognition.start(); }} catch(e) {{}}
+            }};
+            
+            // Find the audio player on the screen
+            const audios = window.parent.document.querySelectorAll('audio');
+            if (audios.length > 0) {{
+                const player = audios[audios.length - 1];
+                
+                // If the audio is currently playing, wait for it to end.
+                if (!player.paused && !player.ended) {{
+                    player.addEventListener('ended', startListening, {{once: true}});
+                }} else {{
+                    // Audio already finished (or didn't autoplay), start listening immediately
+                    startListening();
+                }}
+            }} else {{
+                // No audio in this scene, start listening immediately
+                startListening();
+            }}
+        }}
+        </script>
+        """
+        components.html(js_code, height=0)
+
+    # Display User Actions
+    if not st.session_state.revealed:
+        st.subheader(f"It's your turn, {character_name}!")
+        st.button("👀 Reveal My Line", on_click=reveal_line, use_container_width=True, type="primary")
+    else:
+        st.subheader("Your Line:")
+        st.success(f"**{current_block['user_line']}**")
+        
+        if st.session_state.block_index >= total_scenes - 1:
+            st.balloons()
+            st.success("🎉 You've reached the end of your lines! Great job!")
+            st.button("Start Over", on_click=restart, use_container_width=True)
+
+    # --- SECRET PRELOADER ---
+    if st.session_state.block_index < total_scenes - 1:
+        next_block = blocks[st.session_state.block_index + 1]
+        next_context_text = " ".join(next_block['context'])
+        
+        if next_context_text.strip():
+            threading.Thread(target=get_audio_bytes, args=(next_context_text,)).start()
+
+else:
+    st.info("👈 Please upload a .docx script or ensure 'play.docx' is in the same folder to begin.")
