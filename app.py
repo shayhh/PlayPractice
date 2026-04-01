@@ -116,8 +116,7 @@ with st.sidebar:
     context_size = st.slider("Context Lines to Read", min_value=1, max_value=5, value=3)
     
     st.divider()
-    # NEW FEATURE TOGGLE
-    auto_advance = st.checkbox("🎤 Enable Voice Auto-Advance", value=True, help="Automatically moves to the next scene after you speak your line out loud. Requires Google Chrome and Microphone permissions.")
+    auto_advance = st.checkbox("🎤 Hands-Free Mode", value=True, help="Automatically turns on mic after audio finishes, and advances the scene when you stop speaking.")
 
 # Main App Logic
 if active_file and character_name:
@@ -142,6 +141,7 @@ if active_file and character_name:
         st.selectbox("Jump to scene:", scene_numbers, index=st.session_state.block_index, key="scene_selector", on_change=jump_to_scene, label_visibility="collapsed")
         
     with nav_col3:
+        # The JS will secretly "click" this button for you
         st.button("Next ⏩", on_click=next_scene, args=(total_scenes,), disabled=(st.session_state.block_index == total_scenes - 1), use_container_width=True)
     
     st.progress((st.session_state.block_index + 1) / total_scenes, text=f"Scene {st.session_state.block_index + 1} of {total_scenes}")
@@ -155,80 +155,4 @@ if active_file and character_name:
 
     # Display Context Lines
     st.subheader("Cue (Listen):")
-    context_text = ""
-    for line in current_block['context']:
-        st.markdown(f"> *{line}*")
-        context_text += line + " "
-
-    # Generate and display audio player
-    if context_text:
-        with st.spinner("Loading audio..."):
-            audio_bytes = get_audio_bytes(context_text)
-            if audio_bytes:
-                st.audio(audio_bytes, format="audio/mp3", autoplay=True)
-    else:
-        st.info("No context lines before this cue. You start the scene!")
-
-    st.divider()
-
-    # Display User Actions
-    if not st.session_state.revealed:
-        st.subheader(f"It's your turn, {character_name}!")
-        st.button("🗣️ Reveal My Line", on_click=reveal_line, use_container_width=True, type="primary")
-    else:
-        st.subheader("Your Line:")
-        st.success(f"**{current_block['user_line']}**")
-        
-        if st.session_state.block_index < total_scenes - 1:
-            st.button("⏭️ Move to Next Scene", on_click=next_scene, args=(total_scenes,), use_container_width=True)
-            
-            # --- THE MAGIC VOICE LISTENER ---
-            if auto_advance:
-                st.info("🎤 Listening... Read your line out loud. The scene will advance automatically when you pause.")
-                
-                # We inject a tiny invisible Javascript snippet. It activates the browser's 
-                # speech recognition, listens for Hebrew, and when you finish speaking, 
-                # it secretly "clicks" the Next Scene button for you!
-                js_code = """
-                <script>
-                const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-                if (SpeechRecognition) {
-                    const recognition = new SpeechRecognition();
-                    recognition.continuous = false; // Stop listening automatically after a pause
-                    recognition.lang = 'he-IL';     // Expect Hebrew
-
-                    recognition.onresult = function(event) {
-                        if (event.results.length > 0) {
-                            console.log("Speech detected, advancing scene...");
-                            // Find the Streamlit "Next Scene" button and click it
-                            const buttons = window.parent.document.querySelectorAll('button');
-                            buttons.forEach(btn => {
-                                if (btn.innerText.includes('Move to Next Scene')) {
-                                    btn.click();
-                                }
-                            });
-                        }
-                    };
-                    recognition.start();
-                } else {
-                    console.log("Speech Recognition not supported in this browser.");
-                }
-                </script>
-                """
-                components.html(js_code, height=0)
-
-        else:
-            st.balloons()
-            st.success("🎉 You've reached the end of your lines! Great job!")
-            st.button("Start Over", on_click=restart, use_container_width=True)
-
-    # --- SECRET PRELOADER ---
-    if st.session_state.block_index < total_scenes - 1:
-        next_block = blocks[st.session_state.block_index + 1]
-        next_context_text = " ".join(next_block['context'])
-        
-        if next_context_text.strip():
-            threading.Thread(target=get_audio_bytes, args=(next_context_text,)).start()
-
-else:
-    st.info("👈 Please upload a .docx script or ensure 'play.docx' is in the same folder to begin.")
+    context_
