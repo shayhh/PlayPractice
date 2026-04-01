@@ -9,9 +9,9 @@ st.set_page_config(page_title="Script Runner", page_icon="🎭", layout="centere
 
 # --- CORE FUNCTIONS ---
 @st.cache_data(show_spinner=False)
-def parse_script(file_bytes, practicing_character, lines_of_context):
-    """Reads the docx file and chunks it into 'scenes' based on your character's lines."""
-    doc = Document(file_bytes)
+def parse_script(file_source, practicing_character, lines_of_context):
+    """Reads the docx file (either an uploaded file or a local path) and chunks it into 'scenes'."""
+    doc = Document(file_source)
     lines = [p.text.strip() for p in doc.paragraphs if p.text.strip()]
     
     char_prefixes = (f"{practicing_character}:", f"{practicing_character} :", f"{practicing_character} -")
@@ -86,7 +86,6 @@ def prev_scene():
         st.session_state.revealed = False
 
 def jump_to_scene():
-    # The dropdown returns a 1-based number (Scene 1, Scene 2), so we subtract 1 for the 0-based code index
     st.session_state.block_index = st.session_state.scene_selector - 1
     st.session_state.revealed = False
 
@@ -102,13 +101,25 @@ st.markdown("Upload your script, put on your headphones, and run your lines.")
 with st.sidebar:
     st.header("Settings")
     uploaded_file = st.file_uploader("Upload Word Script (.docx)", type=["docx"])
+    
+    # Determine the active file (Uploaded file takes priority over default 'play.docx')
+    default_file = "play.docx"
+    active_file = None
+    
+    if uploaded_file is not None:
+        active_file = uploaded_file
+        st.success("Using uploaded script.")
+    elif os.path.exists(default_file):
+        active_file = default_file
+        st.info(f"Using default script: '{default_file}'")
+    
     character_name = st.text_input("Your Character's Name", value="שפיגל")
     context_size = st.slider("Context Lines to Read", min_value=1, max_value=5, value=3)
 
 # Main App Logic
-if uploaded_file and character_name:
+if active_file and character_name:
     with st.spinner("Parsing script..."):
-        blocks = parse_script(uploaded_file, character_name, context_size)
+        blocks = parse_script(active_file, character_name, context_size)
     
     if not blocks:
         st.warning(f"Could not find any lines for '{character_name}'. Check your spelling!")
@@ -116,7 +127,7 @@ if uploaded_file and character_name:
 
     total_scenes = len(blocks)
 
-    # --- NEW NAVIGATION BAR ---
+    # --- NAVIGATION BAR ---
     st.divider()
     nav_col1, nav_col2, nav_col3 = st.columns([1, 1.5, 1])
     
@@ -124,7 +135,6 @@ if uploaded_file and character_name:
         st.button("⏪ Previous", on_click=prev_scene, disabled=(st.session_state.block_index == 0), use_container_width=True)
         
     with nav_col2:
-        # We use 'key="scene_selector"' to tie this dropdown directly to the jump_to_scene callback
         scene_numbers = list(range(1, total_scenes + 1))
         st.selectbox("Jump to scene:", scene_numbers, index=st.session_state.block_index, key="scene_selector", on_change=jump_to_scene, label_visibility="collapsed")
         
@@ -133,7 +143,6 @@ if uploaded_file and character_name:
     
     st.progress((st.session_state.block_index + 1) / total_scenes, text=f"Scene {st.session_state.block_index + 1} of {total_scenes}")
     st.divider()
-    # --------------------------
 
     # Get the current scene data
     current_block = blocks[st.session_state.block_index]
@@ -167,7 +176,6 @@ if uploaded_file and character_name:
         st.subheader("Your Line:")
         st.success(f"**{current_block['user_line']}**")
         
-        # We keep the big Next button at the bottom for flow, but tie it to the same logic
         if st.session_state.block_index < total_scenes - 1:
             st.button("⏭️ Move to Next Scene", on_click=next_scene, args=(total_scenes,), use_container_width=True)
         else:
@@ -176,4 +184,4 @@ if uploaded_file and character_name:
             st.button("Start Over", on_click=restart, use_container_width=True)
 
 else:
-    st.info("👈 Please upload a .docx script and enter your character's name in the sidebar to begin.")
+    st.info("👈 Please upload a .docx script or ensure 'play.docx' is in the same folder to begin.")
