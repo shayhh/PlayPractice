@@ -102,8 +102,8 @@ with st.sidebar:
     st.header("Settings")
     uploaded_file = st.file_uploader("Upload Word Script (.docx)", type=["docx"])
     
-    # Determine the active file (Uploaded file takes priority over default 'play.docx')
-    default_file = "play.docx"
+    # Determine the active file (Uploaded file takes priority over default 'Play.docx')
+    default_file = "Play.docx"
     active_file = None
     
     if uploaded_file is not None:
