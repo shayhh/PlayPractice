@@ -43,21 +43,18 @@ def get_audio_bytes(text_to_speak):
     if not text_to_speak.strip():
         return None
         
-    # Create a temporary file to save the audio
     with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as tmp:
         temp_path = tmp.name
         
     try:
-        # Generate the audio
         subprocess.run([
             "edge-tts", 
             "--voice", "he-IL-AvriNeural", 
-            "--rate", "+15%", # Slightly faster for better flow
+            "--rate", "+15%", 
             "--text", text_to_speak, 
             "--write-media", temp_path
         ], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         
-        # Read the audio bytes to send to the browser
         with open(temp_path, "rb") as f:
             audio_data = f.read()
         return audio_data
@@ -66,12 +63,10 @@ def get_audio_bytes(text_to_speak):
         st.error(f"Audio generation failed: {e}")
         return None
     finally:
-        # Clean up the file from the server
         if os.path.exists(temp_path):
             os.remove(temp_path)
 
-# --- STATE MANAGEMENT ---
-# Streamlit reruns the script on every button click, so we have to remember where we are.
+# --- STATE MANAGEMENT & CALLBACKS ---
 if 'block_index' not in st.session_state:
     st.session_state.block_index = 0
 if 'revealed' not in st.session_state:
@@ -80,8 +75,19 @@ if 'revealed' not in st.session_state:
 def reveal_line():
     st.session_state.revealed = True
 
-def next_scene():
-    st.session_state.block_index += 1
+def next_scene(total_blocks):
+    if st.session_state.block_index < total_blocks - 1:
+        st.session_state.block_index += 1
+        st.session_state.revealed = False
+
+def prev_scene():
+    if st.session_state.block_index > 0:
+        st.session_state.block_index -= 1
+        st.session_state.revealed = False
+
+def jump_to_scene():
+    # The dropdown returns a 1-based number (Scene 1, Scene 2), so we subtract 1 for the 0-based code index
+    st.session_state.block_index = st.session_state.scene_selector - 1
     st.session_state.revealed = False
 
 def restart():
@@ -101,7 +107,6 @@ with st.sidebar:
 
 # Main App Logic
 if uploaded_file and character_name:
-    # 1. Parse the script
     with st.spinner("Parsing script..."):
         blocks = parse_script(uploaded_file, character_name, context_size)
     
@@ -109,22 +114,30 @@ if uploaded_file and character_name:
         st.warning(f"Could not find any lines for '{character_name}'. Check your spelling!")
         st.stop()
 
-    # 2. Check if we reached the end
-    if st.session_state.block_index >= len(blocks):
-        st.success("🎉 You've reached the end of your lines! Great job!")
-        st.button("Start Over", on_click=restart)
-        st.stop()
+    total_scenes = len(blocks)
 
-    # 3. Get the current scene data
-    current_block = blocks[st.session_state.block_index]
-    
-    # Show progress
-    st.progress((st.session_state.block_index) / len(blocks), 
-                text=f"Scene {st.session_state.block_index + 1} of {len(blocks)}")
-
+    # --- NEW NAVIGATION BAR ---
     st.divider()
+    nav_col1, nav_col2, nav_col3 = st.columns([1, 1.5, 1])
+    
+    with nav_col1:
+        st.button("⏪ Previous", on_click=prev_scene, disabled=(st.session_state.block_index == 0), use_container_width=True)
+        
+    with nav_col2:
+        # We use 'key="scene_selector"' to tie this dropdown directly to the jump_to_scene callback
+        scene_numbers = list(range(1, total_scenes + 1))
+        st.selectbox("Jump to scene:", scene_numbers, index=st.session_state.block_index, key="scene_selector", on_change=jump_to_scene, label_visibility="collapsed")
+        
+    with nav_col3:
+        st.button("Next ⏩", on_click=next_scene, args=(total_scenes,), disabled=(st.session_state.block_index == total_scenes - 1), use_container_width=True)
+    
+    st.progress((st.session_state.block_index + 1) / total_scenes, text=f"Scene {st.session_state.block_index + 1} of {total_scenes}")
+    st.divider()
+    # --------------------------
 
-    # Display a jump indicator if we skipped a large chunk of text
+    # Get the current scene data
+    current_block = blocks[st.session_state.block_index]
+
     if current_block['jumped']:
         st.caption("... [Skipping ahead in script] ...")
 
@@ -153,7 +166,14 @@ if uploaded_file and character_name:
     else:
         st.subheader("Your Line:")
         st.success(f"**{current_block['user_line']}**")
-        st.button("⏭️ Next Scene", on_click=next_scene, use_container_width=True)
+        
+        # We keep the big Next button at the bottom for flow, but tie it to the same logic
+        if st.session_state.block_index < total_scenes - 1:
+            st.button("⏭️ Move to Next Scene", on_click=next_scene, args=(total_scenes,), use_container_width=True)
+        else:
+            st.balloons()
+            st.success("🎉 You've reached the end of your lines! Great job!")
+            st.button("Start Over", on_click=restart, use_container_width=True)
 
 else:
     st.info("👈 Please upload a .docx script and enter your character's name in the sidebar to begin.")
