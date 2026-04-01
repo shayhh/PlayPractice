@@ -3,6 +3,7 @@ from docx import Document
 import subprocess
 import os
 import tempfile
+import threading
 
 # --- PAGE SETUP ---
 st.set_page_config(page_title="Script Runner", page_icon="🎭", layout="centered")
@@ -38,8 +39,12 @@ def parse_script(file_source, practicing_character, lines_of_context):
     return blocks
 
 @st.cache_data(show_spinner=False)
-def get_audio_bytes(text_to_speak):
-    """Generates audio using edge-tts and returns the raw bytes for the web player."""
+def get_audio_bytes(text_to_speak, speed="+50%"):
+    """
+    Generates audio using edge-tts and returns the raw bytes.
+    Speed is set to +50% (approx 1.5x speed).
+    Because of @st.cache_data, identical text is never generated twice!
+    """
     if not text_to_speak.strip():
         return None
         
@@ -50,7 +55,7 @@ def get_audio_bytes(text_to_speak):
         subprocess.run([
             "edge-tts", 
             "--voice", "he-IL-AvriNeural", 
-            "--rate", "+15%", 
+            "--rate", speed, 
             "--text", text_to_speak, 
             "--write-media", temp_path
         ], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -60,7 +65,8 @@ def get_audio_bytes(text_to_speak):
         return audio_data
         
     except Exception as e:
-        st.error(f"Audio generation failed: {e}")
+        # We use print instead of st.error here so background threads don't crash the UI
+        print(f"Audio generation failed: {e}") 
         return None
     finally:
         if os.path.exists(temp_path):
@@ -102,8 +108,7 @@ with st.sidebar:
     st.header("Settings")
     uploaded_file = st.file_uploader("Upload Word Script (.docx)", type=["docx"])
     
-    # Determine the active file (Uploaded file takes priority over default 'Play.docx')
-    default_file = "Play.docx"
+    default_file = "play.docx"
     active_file = None
     
     if uploaded_file is not None:
@@ -182,6 +187,17 @@ if active_file and character_name:
             st.balloons()
             st.success("🎉 You've reached the end of your lines! Great job!")
             st.button("Start Over", on_click=restart, use_container_width=True)
+
+    # --- SECRET PRELOADER ---
+    # While the user is looking at the current scene, we secretly launch a background 
+    # thread to generate the audio for the NEXT scene and store it in the cache.
+    if st.session_state.block_index < total_scenes - 1:
+        next_block = blocks[st.session_state.block_index + 1]
+        next_context_text = " ".join(next_block['context'])
+        
+        if next_context_text.strip():
+            # Fire and forget. By the time they click "Next", get_audio_bytes will be cached!
+            threading.Thread(target=get_audio_bytes, args=(next_context_text,)).start()
 
 else:
     st.info("👈 Please upload a .docx script or ensure 'play.docx' is in the same folder to begin.")
