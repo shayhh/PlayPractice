@@ -43,7 +43,6 @@ def get_audio_bytes(text_to_speak, speed="+50%"):
     """
     Generates audio using edge-tts and returns the raw bytes.
     Speed is set to +50% (approx 1.5x speed).
-    Because of @st.cache_data, identical text is never generated twice!
     """
     if not text_to_speak.strip():
         return None
@@ -65,7 +64,6 @@ def get_audio_bytes(text_to_speak, speed="+50%"):
         return audio_data
         
     except Exception as e:
-        # We use print instead of st.error here so background threads don't crash the UI
         print(f"Audio generation failed: {e}") 
         return None
     finally:
@@ -92,6 +90,7 @@ def prev_scene():
         st.session_state.revealed = False
 
 def jump_to_scene():
+    # Subtract 1 because humans read Scene 1, 2, 3, but Python reads index 0, 1, 2
     st.session_state.block_index = st.session_state.scene_selector - 1
     st.session_state.revealed = False
 
@@ -108,7 +107,8 @@ with st.sidebar:
     st.header("Settings")
     uploaded_file = st.file_uploader("Upload Word Script (.docx)", type=["docx"])
     
-    default_file = "play.docx"
+    # Check for default play.docx
+    default_file = "Play.docx"
     active_file = None
     
     if uploaded_file is not None:
@@ -132,7 +132,9 @@ if active_file and character_name:
 
     total_scenes = len(blocks)
 
-    # --- NAVIGATION BAR ---
+    # ==========================================
+    # --- HERE IS THE NAVIGATION BAR SECTION ---
+    # ==========================================
     st.divider()
     nav_col1, nav_col2, nav_col3 = st.columns([1, 1.5, 1])
     
@@ -148,6 +150,7 @@ if active_file and character_name:
     
     st.progress((st.session_state.block_index + 1) / total_scenes, text=f"Scene {st.session_state.block_index + 1} of {total_scenes}")
     st.divider()
+    # ==========================================
 
     # Get the current scene data
     current_block = blocks[st.session_state.block_index]
@@ -188,15 +191,14 @@ if active_file and character_name:
             st.success("🎉 You've reached the end of your lines! Great job!")
             st.button("Start Over", on_click=restart, use_container_width=True)
 
-    # --- SECRET PRELOADER ---
-    # While the user is looking at the current scene, we secretly launch a background 
-    # thread to generate the audio for the NEXT scene and store it in the cache.
+    # ==========================================
+    # --- HERE IS THE SECRET PRELOADER ---------
+    # ==========================================
     if st.session_state.block_index < total_scenes - 1:
         next_block = blocks[st.session_state.block_index + 1]
         next_context_text = " ".join(next_block['context'])
         
         if next_context_text.strip():
-            # Fire and forget. By the time they click "Next", get_audio_bytes will be cached!
             threading.Thread(target=get_audio_bytes, args=(next_context_text,)).start()
 
 else:
