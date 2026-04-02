@@ -116,7 +116,7 @@ with st.sidebar:
     context_size = st.slider("Context Lines to Read", min_value=1, max_value=5, value=3)
     
     st.divider()
-    auto_advance = st.checkbox("🎤 Hands-Free Mode", value=True, help="Automatically turns on mic after audio finishes, and advances the scene when you stop speaking.")
+    auto_advance = st.checkbox("🎤 Hands-Free Mode", value=True, help="Automatically turns on mic after audio finishes, and advances the scene when you stop speaking. Will auto-advance after 15 seconds if it misses your voice.")
 
 # Main App Logic
 if active_file and character_name:
@@ -141,7 +141,6 @@ if active_file and character_name:
         st.selectbox("Jump to scene:", scene_numbers, index=st.session_state.block_index, key="scene_selector", on_change=jump_to_scene, label_visibility="collapsed")
         
     with nav_col3:
-        # The JS will secretly "click" this button for you
         st.button("Next ⏩", on_click=next_scene, args=(total_scenes,), disabled=(st.session_state.block_index == total_scenes - 1), use_container_width=True)
     
     st.progress((st.session_state.block_index + 1) / total_scenes, text=f"Scene {st.session_state.block_index + 1} of {total_scenes}")
@@ -171,57 +170,65 @@ if active_file and character_name:
 
     st.divider()
 
-    # --- HANDS-FREE LISTENER INJECTION ---
-    # We inject this BEFORE the "Reveal" button. It waits for the audio to finish, 
-    # then silently listens.
+    # --- HANDS-FREE LISTENER INJECTION WITH FAILSAFE ---
     if auto_advance and st.session_state.block_index < total_scenes - 1:
-        st.caption("🎙️ *Hands-Free mode active: Will wait for audio to finish, then listen for your line.*")
+        st.caption("🎙️ *Hands-Free mode active: Will wait for audio to finish, then listen. Failsafe timeout: 15s.*")
         
         js_code = f"""
         <script>
-        // Use the scene index to ensure we don't duplicate listeners when you click "Reveal"
         const sceneIndex = {st.session_state.block_index};
         
         if (window.parent.currentSceneIndex !== sceneIndex) {{
             window.parent.currentSceneIndex = sceneIndex;
             
+            // Clear any lingering timeouts from a previous scene just in case
+            if (window.parent.speechTimeoutId) {{
+                clearTimeout(window.parent.speechTimeoutId);
+            }}
+
+            const advanceScene = () => {{
+                const btns = window.parent.document.querySelectorAll('button');
+                btns.forEach(btn => {{
+                    if (btn.innerText.includes('Next ⏩')) {{
+                        btn.click();
+                    }}
+                }});
+            }};
+            
             const startListening = () => {{
+                // Start the 15 second countdown timer
+                window.parent.speechTimeoutId = setTimeout(() => {{
+                    console.log("15 seconds elapsed, auto-advancing.");
+                    advanceScene();
+                }}, 15000);
+
                 const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-                if (!SpeechRecognition) return;
+                if (!SpeechRecognition) return; // If unsupported, the 15s timeout will handle it
                 
                 const recognition = new SpeechRecognition();
-                recognition.continuous = false; // Stop when you pause
+                recognition.continuous = false; 
                 recognition.lang = 'he-IL';
                 
                 recognition.onresult = function(event) {{
                     if (event.results.length > 0) {{
-                        // When speech is detected and finished, click the Next button
-                        const btns = window.parent.document.querySelectorAll('button');
-                        btns.forEach(btn => {{
-                            if (btn.innerText.includes('Next ⏩')) {{
-                                btn.click();
-                            }}
-                        }});
+                        // Stop the 15 second timer because speech worked!
+                        clearTimeout(window.parent.speechTimeoutId);
+                        advanceScene();
                     }}
                 }};
                 
                 try {{ recognition.start(); }} catch(e) {{}}
             }};
             
-            // Find the audio player on the screen
             const audios = window.parent.document.querySelectorAll('audio');
             if (audios.length > 0) {{
                 const player = audios[audios.length - 1];
-                
-                // If the audio is currently playing, wait for it to end.
                 if (!player.paused && !player.ended) {{
                     player.addEventListener('ended', startListening, {{once: true}});
                 }} else {{
-                    // Audio already finished (or didn't autoplay), start listening immediately
                     startListening();
                 }}
             }} else {{
-                // No audio in this scene, start listening immediately
                 startListening();
             }}
         }}
